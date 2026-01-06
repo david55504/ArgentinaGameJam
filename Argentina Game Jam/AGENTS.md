@@ -2,7 +2,7 @@
 - Project name: Argentina Game Jam
 - Unity version: Unity 6000.3.2f1
 - Active game object:
-  - Name: Player
+  - Name: TileDrinkPrefab Variant (1)
   - Tag: Untagged
-  - Layer: Default
+  - Layer: Tile
 <!-- UNITY CODE ASSIST INSTRUCTIONS END -->
