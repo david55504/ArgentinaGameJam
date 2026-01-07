@@ -12,6 +12,10 @@ PrefabInstance:
       propertyPath: type
       value: 2
       objectReference: {fileID: 0}
+    - target: {fileID: 6353563922721336923, guid: 7bd34222a6553b84e90a336adc1e9164, type: 3}
+      propertyPath: heatDeltaOnEnter
+      value: 20
+      objectReference: {fileID: 0}
     - target: {fileID: 7638703994912923163, guid: 7bd34222a6553b84e90a336adc1e9164, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 

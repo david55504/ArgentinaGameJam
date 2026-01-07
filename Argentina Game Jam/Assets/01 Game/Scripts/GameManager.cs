@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -38,8 +39,27 @@ public class GameManager : MonoBehaviour
     [Header("Enemies")]
     public List<EnemyUnit> enemies = new();
 
+    // -------- Events ------------
+    public event Action<TurnState> TurnStateChanged;
+    public event Action<int, int> HeatChanged;                 // (heat, maxHeat)
+    public event Action<int, int> ActionsChanged;              // (actionsLeft, actionsPerTurn)
+    public event Action<string> GameLost;                      // message
+    public event Action<string> GameWon;                       // message
+    public event Action GameReset;                             // when starting/restarting
+
+    // -------- Helpers ----------
+    private void RaiseTurnStateChanged() => TurnStateChanged?.Invoke(state);
+    private void RaiseHeatChanged() => HeatChanged?.Invoke(heat, maxHeat);
+    private void RaiseActionsChanged() => ActionsChanged?.Invoke(actionsLeft, actionsPerTurn);
+
     private void Awake()
     {
+        if (Instance != null && Instance != this)
+        {
+            Debug.LogWarning("Duplicate GameManager detected. Destroying the new one.");
+            Destroy(gameObject);
+            return;
+        }
         Instance = this;
     }
 
@@ -75,14 +95,14 @@ public class GameManager : MonoBehaviour
         // Enable input
         if (inputManager) inputManager.enabled = true;
 
-        Debug.Log($"Player Turn started. Actions: {actionsLeft}");
+        RaiseTurnStateChanged();
+        RaiseHeatChanged();
+        RaiseActionsChanged();
     }
 
     public void EndPlayerTurn()
     {
         if (state != TurnState.PlayerTurn) return;
-
-        Debug.Log("Player Turn ended.");
 
         StartCoroutine(EnemyTurnRoutine());
     }
@@ -90,11 +110,10 @@ public class GameManager : MonoBehaviour
     private IEnumerator EnemyTurnRoutine()
     {
         state = TurnState.EnemyTurn;
+        RaiseTurnStateChanged();
 
         // Disable input during enemy turn
         if (inputManager) inputManager.enabled = false;
-
-        Debug.Log("Enemy Turn started.");
 
         // MVP: enemies do nothing or move 1 step (later)
         foreach (var e in enemies)
@@ -105,10 +124,10 @@ public class GameManager : MonoBehaviour
             // yield return null;
 
             // Option B (day 2): move 1 step (you implement in EnemyUnit)
-            yield return e.TakeTurnCoroutine();
+            //yield return e.TakeTurnCoroutine();
         }
 
-        Debug.Log("Enemy Turn ended.");
+        yield return new WaitForSeconds(2f);
 
         StartPlayerTurn();
     }
@@ -118,14 +137,15 @@ public class GameManager : MonoBehaviour
     public bool CanSpendAction()
         => state == TurnState.PlayerTurn && actionsLeft > 0;
 
-    public void ConsumeAction(ActionType actionType, int heatDelta)
+    public void ApplyActionTile(ActionType actionType, int heatDelta)
     {
         if (!CanSpendAction()) return;
 
         actionsLeft--;
         heat = Mathf.Clamp(heat + heatDelta, 0, maxHeat);
 
-        Debug.Log($"Action consumed: {actionType}. Actions left: {actionsLeft}. Heat delta: {heatDelta}. Heat: {heat}");
+        RaiseActionsChanged();
+        RaiseHeatChanged();
 
         if (CheckWinLoseAfterHeat()) return;
 
@@ -153,6 +173,15 @@ public class GameManager : MonoBehaviour
         return true;
     }
 
+    public bool CanMoveToTile(Tile tile)
+    {
+        if (state != TurnState.PlayerTurn) return false;
+        if (actionsLeft <= 0) return false;
+        if (player == null || player.currentTile == null) return false;
+        if (!BoardManager.Instance.AreAdjacent(player.currentTile.gridPos, tile.gridPos)) return false;
+        return CanEnterTile(tile);
+    }
+
     public void OnPlayerEnteredTile(Tile tile)
     {
         if (state != TurnState.PlayerTurn) return;
@@ -161,9 +190,8 @@ public class GameManager : MonoBehaviour
         if (tile.type == TileType.Burn) consecutiveBurnCount++;
         else consecutiveBurnCount = 0;
 
-        // Apply tile heat (movement action consumes action + heat)
         // NOTE: tile.heatDeltaOnEnter should represent the movement heat effect for that tile.
-        ConsumeAction(ActionType.Move, tile.heatDeltaOnEnter);
+        ApplyActionTile(ActionType.Move, tile.heatDeltaOnEnter);
 
         // Consumables
         if (tile.type == TileType.Shade || tile.type == TileType.Drink)
@@ -226,7 +254,7 @@ public class GameManager : MonoBehaviour
         enemy.TakeDamage(attackDamage);
 
         // Consume 1 action + add heat
-        ConsumeAction(ActionType.Attack, attackHeatCost);
+        ApplyActionTile(ActionType.Attack, attackHeatCost);
     }
 
     // ---------------- ENEMIES / ATTACK ----------------
@@ -253,7 +281,7 @@ public class GameManager : MonoBehaviour
     {
         if (heat >= maxHeat)
         {
-            Lose("Heat limit reached. Game Over.");
+            Lose("Game Over");
             return true;
         }
         return false;
@@ -262,17 +290,21 @@ public class GameManager : MonoBehaviour
     private void Win(string msg)
     {
         state = TurnState.Won;
-        if (inputManager) inputManager.enabled = false;
 
-        Debug.Log(msg);
+        RaiseTurnStateChanged();
+        GameWon?.Invoke(msg);
+
+        if (inputManager) inputManager.enabled = false;
     }
 
     private void Lose(string msg)
     {
         state = TurnState.Lost;
-        if (inputManager) inputManager.enabled = false;
 
-        Debug.Log(msg);
+        RaiseTurnStateChanged();
+        GameLost?.Invoke(msg);
+        
+        if (inputManager) inputManager.enabled = false;
     }
 }
 
