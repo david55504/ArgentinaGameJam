@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 public class EnemyUnit : MonoBehaviour
@@ -27,6 +28,15 @@ public class EnemyUnit : MonoBehaviour
     private bool _isExecutingTurn = false;
     private bool _hasCompletedAction = false;
 
+    private static readonly Vector2Int[] Dir4 =
+    {
+        new Vector2Int(0, 1),   // North
+        new Vector2Int(1, 0),   // East
+        new Vector2Int(0, -1),  // South
+        new Vector2Int(-1, 0),  // West
+    };
+
+
     private void Awake()
     {
         if (transform.childCount > 0)
@@ -47,7 +57,10 @@ public class EnemyUnit : MonoBehaviour
 
     private void Start()
     {
-        SnapToTile(currentTile);
+        if (currentTile == null)
+            DebugLog("⚠️ currentTile not set on Start.");
+        else
+            SnapToTile(currentTile);
     }
 
     public void SnapToTile(Tile tile)
@@ -291,7 +304,7 @@ public class EnemyUnit : MonoBehaviour
 
         // PASO 1: BUSCAR mejor casilla
         DebugLog("  [1/5] Buscando mejor casilla...");
-        Tile bestTile = FindBestAdjacentTile();
+        Tile bestTile = FindNextStepAStar();
         
         if (bestTile == null)
         {
@@ -340,128 +353,226 @@ public class EnemyUnit : MonoBehaviour
         Vector3 startPos = transform.position;
         Vector3 targetPos = bestTile.transform.position;
         float moveProgress = 0f;
-        float moveDuration = Vector3.Distance(startPos, targetPos) / moveSpeed;
 
-        while (moveProgress < moveDuration)
+        if (moveSpeed <= 0.01f)
         {
-            moveProgress += Time.deltaTime;
-            float t = Mathf.Clamp01(moveProgress / moveDuration);
-            transform.position = Vector3.Lerp(startPos, targetPos, t);
-            yield return null;
-        }
-
-        transform.position = targetPos;
-        currentTile = bestTile;
-        DebugLog($"  ✓ Llegó a destino: {bestTile.gridPos}");
-
-        // PASO 5: DESACTIVAR animación (volver a idle)
-        DebugLog("  [5/5] Desactivando animación de correr...");
-        if (_animController != null)
-        {
-            _animController.SetMoving(false);
-            DebugLog("  ✓ Vuelto a Idle");
-        }
-
-        yield return new WaitForSeconds(0.2f);
-        DebugLog(">>> MOVIMIENTO COMPLETADO <<<");
-    }
-
-    private Tile FindBestAdjacentTile()
-    {
-        if (currentTile == null || GameManager.Instance?.player?.currentTile == null)
-        {
-            DebugLog("    ❌ FindBest: referencias null");
-            return null;
-        }
-
-        Vector2Int playerPos = GameManager.Instance.player.currentTile.gridPos;
-        Vector2Int myPos = currentTile.gridPos;
-
-        DebugLog($"    🔍 Evaluando casillas desde {myPos} hacia {playerPos}");
-
-        // Casillas adyacentes (sin diagonales)
-        Vector2Int[] directions = new Vector2Int[]
-        {
-            new Vector2Int(0, 1),   // Norte
-            new Vector2Int(1, 0),   // Este
-            new Vector2Int(0, -1),  // Sur
-            new Vector2Int(-1, 0)   // Oeste
-        };
-
-        Tile bestTile = null;
-        int bestDistance = int.MaxValue;
-
-        for (int i = 0; i < directions.Length; i++)
-        {
-            Vector2Int checkPos = myPos + directions[i];
-            
-            // Verificar que existe la casilla
-            Tile tile = BoardManager.Instance.GetTile(checkPos);
-            if (tile == null)
-            {
-                DebugLog($"      [{i}] {checkPos}: No existe");
-                continue;
-            }
-
-            // Verificar que es caminable
-            if (!tile.IsWalkable)
-            {
-                DebugLog($"      [{i}] {checkPos}: Bloqueada");
-                continue;
-            }
-            
-            // Verificar que no está ocupada por otro enemigo
-            if (IsTileOccupiedByOtherEnemy(tile))
-            {
-                DebugLog($"      [{i}] {checkPos}: Ocupada por enemigo");
-                continue;
-            }
-            
-            // Verificar que no es la casilla del jugador
-            if (tile == GameManager.Instance.player.currentTile)
-            {
-                DebugLog($"      [{i}] {checkPos}: Es del jugador");
-                continue;
-            }
-
-            // Calcular distancia Manhattan al jugador
-            int distance = Mathf.Abs(checkPos.x - playerPos.x) + 
-                          Mathf.Abs(checkPos.y - playerPos.y);
-
-            DebugLog($"      [{i}] {checkPos}: VÁLIDA (dist={distance})");
-
-            // Elegir la que más acerca al jugador
-            if (distance < bestDistance)
-            {
-                bestDistance = distance;
-                bestTile = tile;
-                DebugLog($"           ⭐ NUEVA MEJOR (dist={distance})");
-            }
-        }
-
-        if (bestTile != null)
-        {
-            DebugLog($"    ✅ RESULTADO: {bestTile.gridPos} (dist={bestDistance})");
+            DebugLog("❌ moveSpeed too low. Teleporting to tile.");
+            transform.position = targetPos;
         }
         else
         {
-            DebugLog($"    ❌ RESULTADO: Ninguna casilla válida");
-        }
+            float moveDuration = Vector3.Distance(startPos, targetPos) / moveSpeed;
 
-        return bestTile;
+            while (moveProgress < moveDuration)
+            {
+                moveProgress += Time.deltaTime;
+                float t = Mathf.Clamp01(moveProgress / moveDuration);
+                transform.position = Vector3.Lerp(startPos, targetPos, t);
+                yield return null;
+            }
+
+            transform.position = targetPos;
+            currentTile = bestTile;
+            DebugLog($"  ✓ Llegó a destino: {bestTile.gridPos}");
+
+            // PASO 5: DESACTIVAR animación (volver a idle)
+            DebugLog("  [5/5] Desactivando animación de correr...");
+            if (_animController != null)
+            {
+                _animController.SetMoving(false);
+                DebugLog("  ✓ Vuelto a Idle");
+            }
+
+            yield return new WaitForSeconds(0.2f);
+            DebugLog(">>> MOVIMIENTO COMPLETADO <<<");
+        }
     }
 
     private bool IsTileOccupiedByOtherEnemy(Tile tile)
     {
         if (GameManager.Instance == null || tile == null) return false;
-        
+
         foreach (var enemy in GameManager.Instance.enemies)
         {
             if (enemy == null || enemy.IsDead || enemy == this) continue;
             if (enemy.currentTile == tile) return true;
         }
-        
+
         return false;
+    }
+
+    private Tile FindNextStepAStar()
+    {
+        if (currentTile == null || GameManager.Instance?.player?.currentTile == null)
+        {
+            DebugLog("FindNextStepAStar: Null references. Aborting.");
+            return null;
+        }
+
+        Vector2Int start = currentTile.gridPos;
+        Vector2Int playerPos = GameManager.Instance.player.currentTile.gridPos;
+
+        // 1) Build goal set: any walkable, unoccupied tile adjacent to player (not the player's tile)
+        List<Vector2Int> goals = new List<Vector2Int>(4);
+        for (int i = 0; i < 4; i++)
+            goals.Add(playerPos + Dir4[i]);
+
+        // Filter goals (must exist, walkable, not occupied by other enemy, not player's tile)
+        goals.RemoveAll(g =>
+        {
+            Tile t = BoardManager.Instance.GetTile(g);
+            if (t == null) return true;
+            if (!t.IsWalkable) return true;
+            if (t == GameManager.Instance.player.currentTile) return true;
+            if (IsTileOccupiedByOtherEnemy(t)) return true;
+            return false;
+        });
+
+        if (goals.Count == 0)
+        {
+            DebugLog("FindNextStepAStar: No valid goal tiles adjacent to player.");
+            return null;
+        }
+
+        // 2) Run A* to the closest goal (multi-goal A*)
+        List<Vector2Int> path = AStarPathToAnyGoal(start, goals, playerPos);
+
+        if (path == null || path.Count < 2)
+        {
+            DebugLog("FindNextStepAStar: No path found (or already at goal).");
+            return null;
+        }
+
+        // path[0] = start, path[1] = next step
+        Vector2Int nextPos = path[1];
+        Tile nextTile = BoardManager.Instance.GetTile(nextPos);
+
+        if (nextTile == null)
+        {
+            DebugLog("FindNextStepAStar: Next tile resolved to null. Unexpected.");
+            return null;
+        }
+
+        DebugLog($"FindNextStepAStar: Next step is {nextTile.gridPos} (path length {path.Count}).");
+        return nextTile;
+    }
+
+    // ---------------- A* Implementation ----------------
+
+    private class AStarNode
+    {
+        public Vector2Int pos;
+        public int g;
+        public int h;
+        public int f => g + h;
+        public AStarNode parent;
+
+        public AStarNode(Vector2Int pos, int g, int h, AStarNode parent)
+        {
+            this.pos = pos;
+            this.g = g;
+            this.h = h;
+            this.parent = parent;
+        }
+    }
+
+    private List<Vector2Int> AStarPathToAnyGoal(Vector2Int start, List<Vector2Int> goals, Vector2Int playerPos)
+    {
+        // Open set as list (fine for jam-sized grids). For bigger grids you’d use a priority queue.
+        List<AStarNode> open = new List<AStarNode>();
+        Dictionary<Vector2Int, AStarNode> openMap = new Dictionary<Vector2Int, AStarNode>();
+        HashSet<Vector2Int> closed = new HashSet<Vector2Int>();
+
+        // For faster "is goal" checks
+        HashSet<Vector2Int> goalSet = new HashSet<Vector2Int>(goals);
+
+        AStarNode startNode = new AStarNode(start, 0, HeuristicToClosestGoal(start, goals), null);
+        open.Add(startNode);
+        openMap[start] = startNode;
+
+        while (open.Count > 0)
+        {
+            // Pick node with lowest f (tie-breaker: lowest h)
+            int bestIndex = 0;
+            for (int i = 1; i < open.Count; i++)
+            {
+                if (open[i].f < open[bestIndex].f ||
+                    (open[i].f == open[bestIndex].f && open[i].h < open[bestIndex].h))
+                {
+                    bestIndex = i;
+                }
+            }
+
+            AStarNode current = open[bestIndex];
+            open.RemoveAt(bestIndex);
+            openMap.Remove(current.pos);
+
+            if (goalSet.Contains(current.pos))
+            {
+                // Found a goal, reconstruct full path
+                return ReconstructPath(current);
+            }
+
+            closed.Add(current.pos);
+
+            // Explore neighbors (N/E/S/W)
+            for (int i = 0; i < 4; i++)
+            {
+                Vector2Int npos = current.pos + Dir4[i];
+
+                if (closed.Contains(npos)) continue;
+                if (npos == playerPos) continue;
+
+                Tile tile = BoardManager.Instance.GetTile(npos);
+                if (tile == null) continue;
+                if (!tile.IsWalkable) continue;
+                if (IsTileOccupiedByOtherEnemy(tile)) continue;
+
+                int tentativeG = current.g + 1;
+
+                if (openMap.TryGetValue(npos, out AStarNode existing))
+                {
+                    if (tentativeG >= existing.g) continue;
+
+                    existing.g = tentativeG;
+                    existing.parent = current;
+                    existing.h = HeuristicToClosestGoal(npos, goals);
+                    continue;
+                }
+
+                AStarNode node = new AStarNode(npos, tentativeG, HeuristicToClosestGoal(npos, goals), current);
+                open.Add(node);
+                openMap[npos] = node;
+            }
+
+        }
+
+        // No path found
+        return null;
+    }
+
+    private int HeuristicToClosestGoal(Vector2Int p, List<Vector2Int> goals)
+    {
+        int best = int.MaxValue;
+        for (int i = 0; i < goals.Count; i++)
+        {
+            int d = Mathf.Abs(p.x - goals[i].x) + Mathf.Abs(p.y - goals[i].y);
+            if (d < best) best = d;
+        }
+        return best;
+    }
+
+    private List<Vector2Int> ReconstructPath(AStarNode endNode)
+    {
+        List<Vector2Int> path = new List<Vector2Int>();
+        AStarNode cur = endNode;
+        while (cur != null)
+        {
+            path.Add(cur.pos);
+            cur = cur.parent;
+        }
+        path.Reverse();
+        return path;
     }
 
     private void DebugLog(string message)

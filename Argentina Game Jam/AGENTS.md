@@ -2,7 +2,7 @@
 - Project name: Argentina Game Jam
 - Unity version: Unity 6000.3.2f1
 - Active game object:
-  - Name: Tile Label Feedback
+  - Name: Enemy
   - Tag: Untagged
-  - Layer: Default
+  - Layer: Enemy
 <!-- UNITY CODE ASSIST INSTRUCTIONS END -->
