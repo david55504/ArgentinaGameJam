@@ -7,10 +7,8 @@ public class UIManager : MonoBehaviour
     [Header("Refs")]
     public UIHud hud;
     public UILosePanel losePanel;
+    public UIWinPanel winPanel;
 
-    //[Header("Optional Panels (later)")]
-    // public UILosePanel losePanel;
-    // public UIWinPanel winPanel;
 
     private void Awake()
     {
@@ -111,7 +109,7 @@ public class UIManager : MonoBehaviour
         Debug.Log("UI received GameReset.");
         ForceRefreshFromGame();
         losePanel?.Hide();
-        // winPanel?.Hide();
+        winPanel?.Hide();
     }
 
     private void OnGameLost(string msg)
@@ -123,7 +121,7 @@ public class UIManager : MonoBehaviour
     private void OnGameWon(string msg)
     {
         Debug.Log($"UI received GameWon: {msg}");
-        // winPanel?.Show(msg);
+        winPanel?.Show(msg);
     }
 }
 

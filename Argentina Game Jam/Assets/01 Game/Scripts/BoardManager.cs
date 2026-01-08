@@ -76,10 +76,20 @@ public class BoardManager : MonoBehaviour
     public Tile GetTile(Vector2Int pos)
         => _tiles.TryGetValue(pos, out var t) ? t : null;
 
-    public bool AreAdjacent(Vector2Int a, Vector2Int b)
+    public bool AreAdjacent4D(Vector2Int a, Vector2Int b)
     {
         int dx = Mathf.Abs(a.x - b.x);
         int dy = Mathf.Abs(a.y - b.y);
-        return (dx + dy) == 1; // sin diagonales
+        return (dx + dy) == 1; // Without diagonals
     }
+
+    public bool AreAdjacent8D(Vector2Int a, Vector2Int b)
+    {
+        int dx = Mathf.Abs(a.x - b.x);
+        int dy = Mathf.Abs(a.y - b.y);
+
+        // Adjacent in 8 directions means with diagonals
+        return (dx <= 1 && dy <= 1) && !(dx == 0 && dy == 0);
+    }
+
 }

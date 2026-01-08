@@ -28,7 +28,7 @@ public class PlayerController : MonoBehaviour
         if (_isMoving) return;
         if (currentTile == null || target == null) return;
 
-        if (!BoardManager.Instance.AreAdjacent(currentTile.gridPos, target.gridPos))
+        if (!BoardManager.Instance.AreAdjacent4D(currentTile.gridPos, target.gridPos))
         {
             Debug.Log("Not Allowed. Just adjacents Tiles (No diagonals)");
             return;

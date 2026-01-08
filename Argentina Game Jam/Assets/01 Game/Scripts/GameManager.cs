@@ -74,18 +74,17 @@ public class GameManager : MonoBehaviour
         enemies.AddRange(FindObjectsByType<EnemyUnit>(FindObjectsSortMode.None));
 
         SaveEnemyInitialData();
-
         ResetRun();
     }
 
     private void SaveEnemyInitialData()
     {
         _enemyInitialData.Clear();
-        
+
         foreach (var enemy in enemies)
         {
             if (enemy == null) continue;
-            
+
             _enemyInitialData.Add(new EnemyInitialData
             {
                 enemy = enemy,
@@ -93,7 +92,7 @@ public class GameManager : MonoBehaviour
                 initialHealth = enemy.health
             });
         }
-        
+
         Debug.Log($"Saved initial data for {_enemyInitialData.Count} enemies.");
     }
 
@@ -109,16 +108,12 @@ public class GameManager : MonoBehaviour
         {
             if (startTile)
                 player.SnapToTile(startTile);
-            
+
             var animController = player.GetComponent<PlayerAnimationController>();
-            if (animController != null)
-            {
-                animController.ResetToIdle();
-            }
+            animController?.ResetToIdle();
         }
 
         GameReset?.Invoke();
-
         StartPlayerTurn();
     }
 
@@ -131,11 +126,9 @@ public class GameManager : MonoBehaviour
             if (data.enemy == null) continue;
 
             data.enemy.ResetEnemy(data.initialHealth);
-            
+
             if (data.initialTile != null)
-            {
                 data.enemy.SnapToTile(data.initialTile);
-            }
 
             enemies.Add(data.enemy);
         }
@@ -157,10 +150,10 @@ public class GameManager : MonoBehaviour
         RaiseTurnStateChanged();
         RaiseHeatChanged();
         RaiseActionsChanged();
-        
+
         Debug.Log("═══════════════════════════════════════");
-        Debug.Log("🔵 TURNO DEL JUGADOR - INICIADO");
-        Debug.Log($"   Acciones: {actionsLeft}/{actionsPerTurn}");
+        Debug.Log("🔵 PLAYER TURN - STARTED");
+        Debug.Log($"   Actions: {actionsLeft}/{actionsPerTurn}");
         Debug.Log("═══════════════════════════════════════");
     }
 
@@ -169,24 +162,33 @@ public class GameManager : MonoBehaviour
         if (state != TurnState.PlayerTurn) return;
 
         Debug.Log("═══════════════════════════════════════");
-        Debug.Log("🔵 TURNO DEL JUGADOR - FINALIZADO");
+        Debug.Log("🔵 PLAYER TURN - ENDED");
         Debug.Log("═══════════════════════════════════════");
-        
+
+        // TAG CHECK: only here (end of player turn)
+        if (CheckLoseTaggedEndOfTurn())
+        {
+            // Lose() already called inside the method
+            return;
+        }
+
         StartCoroutine(EnemyTurnRoutine());
     }
 
     private IEnumerator EnemyTurnRoutine()
     {
+        if (state == TurnState.Won || state == TurnState.Lost) yield break;
+
         Debug.Log("════════════════════════════════════════");
-        Debug.Log("🔴 ENEMY TURN ROUTINE - INICIANDO");
+        Debug.Log("🔴 ENEMY TURN - STARTED");
         Debug.Log("════════════════════════════════════════");
 
-        // Esperar a que el jugador termine de moverse
+        // Wait for player movement to finish (safety)
         if (player != null)
         {
             float waitTime = 0f;
             float maxWait = 3f;
-            
+
             while (player.IsMoving && waitTime < maxWait)
             {
                 waitTime += Time.deltaTime;
@@ -194,56 +196,57 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        yield return new WaitForSeconds(0.2f);
+        yield return new WaitForSeconds(0.15f);
 
         state = TurnState.EnemyTurn;
         RaiseTurnStateChanged();
-        
+
         if (inputManager) inputManager.enabled = false;
 
-        // Contar enemigos vivos
+        // Count alive enemies
         int aliveCount = 0;
-        foreach (var enemy in enemies)
+        for (int i = 0; i < enemies.Count; i++)
         {
-            if (enemy != null && !enemy.IsDead) aliveCount++;
+            if (enemies[i] != null && !enemies[i].IsDead) aliveCount++;
         }
 
-        Debug.Log($"📊 ENEMIGOS: {aliveCount} vivos");
+        Debug.Log($"Enemies alive: {aliveCount}");
 
         if (aliveCount == 0)
         {
-            Debug.Log("⚠️ No hay enemigos vivos");
-            yield return new WaitForSeconds(0.5f);
+            Debug.Log("No alive enemies. Returning to player.");
+            yield return new WaitForSeconds(0.2f);
             StartPlayerTurn();
             yield break;
         }
 
-        Debug.Log("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓");
-        Debug.Log("┃  PROCESANDO TURNOS DE ENEMIGOS     ┃");
-        Debug.Log("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛");
-
+        // Each enemy gets ONE action: move 1 tile toward the player using A*
         int processedCount = 0;
-        
+
         for (int i = 0; i < enemies.Count; i++)
         {
             var enemy = enemies[i];
-            
             if (enemy == null || enemy.IsDead) continue;
 
             processedCount++;
-            Debug.Log($"▶ Enemigo {processedCount}/{aliveCount}: {enemy.name}");
-            
+            Debug.Log($"Enemy {processedCount}/{aliveCount}: {enemy.name}");
+
+            // IMPORTANT:
+            // Your EnemyUnit.TakeTurnCoroutine() currently may ATTACK if adjacent.
+            // For "tag-only" enemies, you should remove/disable attack inside EnemyUnit,
+            // or create a TakeTagTurnCoroutine() that only moves.
             yield return enemy.TakeTurnCoroutine();
-            yield return new WaitForSeconds(0.3f);
+
+            yield return new WaitForSeconds(0.15f);
+
+            if (state == TurnState.Won || state == TurnState.Lost) yield break;
         }
 
-        Debug.Log("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛");
-        Debug.Log($"✅ {processedCount} enemigos completaron su turno");
-
-        yield return new WaitForSeconds(0.3f);
+        Debug.Log($"Enemies processed: {processedCount}");
+        yield return new WaitForSeconds(0.15f);
 
         Debug.Log("════════════════════════════════════════");
-        Debug.Log("🔵 DEVOLVIENDO TURNO AL JUGADOR");
+        Debug.Log("🔵 RETURNING TURN TO PLAYER");
         Debug.Log("════════════════════════════════════════");
 
         StartPlayerTurn();
@@ -254,6 +257,7 @@ public class GameManager : MonoBehaviour
     public bool CanSpendAction()
         => state == TurnState.PlayerTurn && actionsLeft > 0;
 
+    // Optional helper if you still use it elsewhere
     public void ApplyActionTile(ActionType actionType, int heatDelta)
     {
         if (!CanSpendAction()) return;
@@ -263,20 +267,21 @@ public class GameManager : MonoBehaviour
 
         RaiseActionsChanged();
         RaiseHeatChanged();
-        
-        Debug.Log($"⚡ Acción: {actionType} | Restantes: {actionsLeft}/{actionsPerTurn} | Heat: {heat}/{maxHeat}");
 
-        if (CheckWinLoseAfterHeat()) return;
+        Debug.Log($"Action: {actionType} | Actions left: {actionsLeft}/{actionsPerTurn} | Heat: {heat}/{maxHeat}");
 
-        // En Sistema A, NO terminamos el turno aquí automáticamente
-        // El turno solo termina cuando actionsLeft == 0 DESPUÉS de que los enemigos respondan
+        if (CheckLoseHeat()) return;
+
+        if (actionsLeft <= 0 && state == TurnState.PlayerTurn)
+            EndPlayerTurn();
     }
 
+    // Kept for compatibility, but with "tag-only" enemies you likely won't call this anymore
     public void ApplyEnemyAttackHeat(int heatDelta)
     {
         heat = Mathf.Clamp(heat + heatDelta, 0, maxHeat);
         RaiseHeatChanged();
-        CheckWinLoseAfterHeat();
+        CheckLoseHeat();
     }
 
     // ---------------- MOVEMENT RULES ----------------
@@ -302,7 +307,7 @@ public class GameManager : MonoBehaviour
         if (state != TurnState.PlayerTurn) return false;
         if (actionsLeft <= 0) return false;
         if (player == null || player.currentTile == null) return false;
-        if (!BoardManager.Instance.AreAdjacent(player.currentTile.gridPos, tile.gridPos)) return false;
+        if (!BoardManager.Instance.AreAdjacent4D(player.currentTile.gridPos, tile.gridPos)) return false;
         return CanEnterTile(tile);
     }
 
@@ -310,87 +315,42 @@ public class GameManager : MonoBehaviour
     {
         if (state != TurnState.PlayerTurn) return;
 
-        Debug.Log($"🟢 Jugador entró a tile {tile.gridPos} (tipo: {tile.type})");
+        Debug.Log($"Player entered tile {tile.gridPos} (type: {tile.type})");
 
-        // Actualizar contador de tiles quemados consecutivos
+        // Update consecutive burn counter
         if (tile.type == TileType.Burn) consecutiveBurnCount++;
         else consecutiveBurnCount = 0;
 
-        // Gastar acción y aplicar calor
+        // Spend action + apply heat
         actionsLeft--;
         heat = Mathf.Clamp(heat + tile.heatDeltaOnEnter, 0, maxHeat);
-        
+
         RaiseActionsChanged();
         RaiseHeatChanged();
-        
-        Debug.Log($"⚡ Acción gastada | Restantes: {actionsLeft}/{actionsPerTurn} | Heat: {heat}/{maxHeat}");
 
-        // Consumir tile si es necesario
+        Debug.Log($"Action spent | Actions left: {actionsLeft}/{actionsPerTurn} | Heat: {heat}/{maxHeat}");
+
+        // Consume tile if needed
         if (tile.type == TileType.Shade || tile.type == TileType.Drink)
             tile.ConsumeIfNeeded();
 
-        // Verificar victoria
+        // Check win
         if (tile == goalTile && state != TurnState.Lost)
         {
             Win("Goal reached.");
             return;
         }
 
-        // Verificar derrota por calor
-        if (CheckWinLoseAfterHeat()) return;
+        // Check lose by heat immediately
+        if (CheckLoseHeat()) return;
 
-        // 🆕 SISTEMA A: Después de cada movimiento, los enemigos responden
-        Debug.Log("🔄 Iniciando respuesta de enemigos...");
-        StartCoroutine(EnemyResponseAfterPlayerMove());
-    }
-
-    // 🆕 NUEVO MÉTODO: Enemigos responden después de cada movimiento
-    private IEnumerator EnemyResponseAfterPlayerMove()
-    {
-        // Bloquear input temporalmente
-        TurnState previousState = state;
-        state = TurnState.Busy;
-        RaiseTurnStateChanged();
-        if (inputManager) inputManager.enabled = false;
-
-        // Pequeña pausa visual
-        yield return new WaitForSeconds(0.15f);
-
-        Debug.Log("┌─────────────────────────────────────┐");
-        Debug.Log("│  🔴 RESPUESTA DE ENEMIGOS           │");
-        Debug.Log("└─────────────────────────────────────┘");
-
-        // Cada enemigo vivo juega una vez
-        int count = 0;
-        foreach (var enemy in enemies)
-        {
-            if (enemy == null || enemy.IsDead) continue;
-            
-            count++;
-            Debug.Log($"▶ Enemigo {count}: {enemy.name}");
-            yield return enemy.TakeTurnCoroutine();
-            yield return new WaitForSeconds(0.25f);
-        }
-
-        Debug.Log($"✅ {count} enemigos completaron su respuesta");
-        Debug.Log("└─────────────────────────────────────┘");
-
-        // Verificar si el turno debe terminar (sin acciones)
-        if (actionsLeft <= 0)
-        {
-            Debug.Log("🔴 SIN ACCIONES RESTANTES - Reiniciando turno del jugador");
-            StartPlayerTurn(); // Reinicia con 3 acciones nuevas
-        }
-        else
-        {
-            Debug.Log($"🟢 Turno continúa - {actionsLeft} acciones disponibles");
-            state = TurnState.PlayerTurn;
-            RaiseTurnStateChanged();
-            if (inputManager) inputManager.enabled = true;
-        }
+        // Auto end turn when no actions left (no manual end turn)
+        if (actionsLeft <= 0 && state == TurnState.PlayerTurn)
+            EndPlayerTurn();
     }
 
     // ---------------- ATTACK RULES ----------------
+    // (You can keep this for now. If you want "no attack" later, we can remove it safely.)
     public bool CanAttackEnemyOnTile(Tile targetTile)
     {
         if (state != TurnState.PlayerTurn) return false;
@@ -400,7 +360,7 @@ public class GameManager : MonoBehaviour
         var enemy = GetEnemyOnTile(targetTile);
         if (enemy == null) return false;
 
-        if (!BoardManager.Instance.AreAdjacent(player.currentTile.gridPos, targetTile.gridPos))
+        if (!BoardManager.Instance.AreAdjacent4D(player.currentTile.gridPos, targetTile.gridPos))
             return false;
 
         return true;
@@ -433,8 +393,7 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        Debug.Log($"⚔️ Atacando enemigo en tile {targetTile.gridPos}");
-
+        Debug.Log($"Attacking enemy on tile {targetTile.gridPos}");
         StartCoroutine(AttackRoutine(enemy));
     }
 
@@ -462,33 +421,32 @@ public class GameManager : MonoBehaviour
         }
 
         player.GetComponent<PlayerAnimationController>()?.PlayAttack();
-
         yield return new WaitForSeconds(0.1f);
 
         enemy.TakeDamage(attackDamage);
 
-        // Gastar acción y aplicar costo de calor
+        // Spend action + apply heat cost
         actionsLeft--;
         heat = Mathf.Clamp(heat + attackHeatCost, 0, maxHeat);
-        
+
         RaiseActionsChanged();
         RaiseHeatChanged();
-        
-        Debug.Log($"⚡ Ataque realizado | Restantes: {actionsLeft}/{actionsPerTurn} | Heat: {heat}/{maxHeat}");
 
-        if (CheckWinLoseAfterHeat()) yield break;
+        Debug.Log($"Attack done | Actions left: {actionsLeft}/{actionsPerTurn} | Heat: {heat}/{maxHeat}");
 
-        // 🆕 SISTEMA A: Después de atacar, los enemigos también responden
-        Debug.Log("🔄 Iniciando respuesta de enemigos tras ataque...");
-        yield return EnemyResponseAfterPlayerMove();
+        if (CheckLoseHeat()) yield break;
+
+        if (actionsLeft <= 0 && state == TurnState.PlayerTurn)
+            EndPlayerTurn();
     }
 
-    // ---------------- ENEMIES / ATTACK ----------------
+    // ---------------- ENEMIES ----------------
 
     public bool IsTileOccupiedByEnemy(Tile tile)
     {
-        foreach (var e in enemies)
+        for (int i = 0; i < enemies.Count; i++)
         {
+            var e = enemies[i];
             if (e == null || e.IsDead) continue;
             if (e.currentTile == tile) return true;
         }
@@ -502,13 +460,40 @@ public class GameManager : MonoBehaviour
 
     // ---------------- WIN / LOSE ----------------
 
-    private bool CheckWinLoseAfterHeat()
+    private bool CheckLoseHeat()
     {
         if (heat >= maxHeat)
         {
-            Lose("Game Over");
+            Lose("Game Over: Heat limit reached!");
             return true;
         }
+        return false;
+    }
+
+    private bool CheckLoseTaggedEndOfTurn()
+    {
+        if (player == null || player.currentTile == null)
+        {
+            Debug.LogWarning("CheckLoseTaggedEndOfTurn: Player or Player.currentTile is null.");
+            return false;
+        }
+
+        Vector2Int playerPos = player.currentTile.gridPos;
+
+        for (int i = 0; i < enemies.Count; i++)
+        {
+            EnemyUnit e = enemies[i];
+            if (e == null || e.IsDead || e.currentTile == null) continue;
+
+            Vector2Int enemyPos = e.currentTile.gridPos;
+
+            if (BoardManager.Instance != null && BoardManager.Instance.AreAdjacent8D(enemyPos, playerPos))
+            {
+                Lose("Game Over: You were tagged!");
+                return true;
+            }
+        }
+
         return false;
     }
 
@@ -520,22 +505,22 @@ public class GameManager : MonoBehaviour
         GameWon?.Invoke(msg);
 
         if (inputManager) inputManager.enabled = false;
-        
-        Debug.Log($"🎉 VICTORIA: {msg}");
+
+        Debug.Log($"Victory: {msg}");
     }
 
     private void Lose(string msg)
     {
         player.GetComponent<PlayerAnimationController>()?.PlayDeath();
-        
+
         state = TurnState.Lost;
 
         RaiseTurnStateChanged();
         GameLost?.Invoke(msg);
-        
+
         if (inputManager) inputManager.enabled = false;
-        
-        Debug.Log($"💀 DERROTA: {msg}");
+
+        Debug.Log($"Defeat: {msg}");
     }
 }
 
