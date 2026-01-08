@@ -2,7 +2,7 @@
 - Project name: Argentina Game Jam
 - Unity version: Unity 6000.3.2f1
 - Active game object:
-  - Name: UI MANAGER
+  - Name: Level_01_root
   - Tag: Untagged
-  - Layer: UI
+  - Layer: Default
 <!-- UNITY CODE ASSIST INSTRUCTIONS END -->

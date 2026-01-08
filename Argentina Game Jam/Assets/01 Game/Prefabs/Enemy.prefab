@@ -125,6 +125,8 @@ GameObject:
   - component: {fileID: 5231010840363933286}
   - component: {fileID: 6273050413658974611}
   - component: {fileID: 8508728889335794781}
+  - component: {fileID: 8087155355088968648}
+  - component: {fileID: 7152229246495821706}
   m_Layer: 8
   m_Name: Enemy
   m_TagString: Untagged
@@ -192,6 +194,32 @@ MonoBehaviour:
   rotationSpeed: 720
   currentTile: {fileID: 0}
   showDebugLogs: 1
+--- !u!114 &8087155355088968648
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8514530121809401585}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1e927a16fa892fd40862e11962f988ff, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::EnemyActions
+  animController: {fileID: 7152229246495821706}
+--- !u!114 &7152229246495821706
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8514530121809401585}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 806f556f8d8b5314d9d3a7134851fa9a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::EnemyAnimationController
+  animator: {fileID: 837075286964913756}
 --- !u!1001 &2858398810132201462
 PrefabInstance:
   m_ObjectHideFlags: 0
