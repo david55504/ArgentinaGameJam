@@ -165,12 +165,7 @@ public class GameManager : MonoBehaviour
         Debug.Log("🔵 PLAYER TURN - ENDED");
         Debug.Log("═══════════════════════════════════════");
 
-        // TAG CHECK: only here (end of player turn)
-        if (CheckLoseTaggedEndOfTurn())
-        {
-            // Lose() already called inside the method
-            return;
-        }
+        // Sistema de tag desactivado - El jugador ya no pierde por ser tocado, solo por calor
 
         StartCoroutine(EnemyTurnRoutine());
     }
@@ -203,6 +198,15 @@ public class GameManager : MonoBehaviour
 
         if (inputManager) inputManager.enabled = false;
 
+        // Incrementar contador de turnos ANTES de procesar enemigos
+        for (int i = 0; i < enemies.Count; i++)
+        {
+            if (enemies[i] != null && !enemies[i].IsDead)
+            {
+                enemies[i].turnCounter++;
+            }
+        }
+
         // Count alive enemies
         int aliveCount = 0;
         for (int i = 0; i < enemies.Count; i++)
@@ -220,7 +224,7 @@ public class GameManager : MonoBehaviour
             yield break;
         }
 
-        // Each enemy gets ONE action: move 1 tile toward the player using A*
+        // Each enemy processes their turn (respecting turn frequency)
         int processedCount = 0;
 
         for (int i = 0; i < enemies.Count; i++)
@@ -229,12 +233,12 @@ public class GameManager : MonoBehaviour
             if (enemy == null || enemy.IsDead) continue;
 
             processedCount++;
-            Debug.Log($"Enemy {processedCount}/{aliveCount}: {enemy.name}");
+            Debug.Log($"┌─────────────────────────────────────┐");
+            Debug.Log($"│ Enemy {processedCount}/{aliveCount}: {enemy.name}");
+            Debug.Log($"│ Turn frequency: every {enemy.turnFrequency} turn(s)");
+            Debug.Log($"│ Counter: {enemy.turnCounter}/{enemy.turnFrequency}");
+            Debug.Log($"└─────────────────────────────────────┘");
 
-            // IMPORTANT:
-            // Your EnemyUnit.TakeTurnCoroutine() currently may ATTACK if adjacent.
-            // For "tag-only" enemies, you should remove/disable attack inside EnemyUnit,
-            // or create a TakeTagTurnCoroutine() that only moves.
             yield return enemy.TakeTurnCoroutine();
 
             yield return new WaitForSeconds(0.15f);
@@ -257,7 +261,6 @@ public class GameManager : MonoBehaviour
     public bool CanSpendAction()
         => state == TurnState.PlayerTurn && actionsLeft > 0;
 
-    // Optional helper if you still use it elsewhere
     public void ApplyActionTile(ActionType actionType, int heatDelta)
     {
         if (!CanSpendAction()) return;
@@ -276,11 +279,13 @@ public class GameManager : MonoBehaviour
             EndPlayerTurn();
     }
 
-    // Kept for compatibility, but with "tag-only" enemies you likely won't call this anymore
     public void ApplyEnemyAttackHeat(int heatDelta)
     {
         heat = Mathf.Clamp(heat + heatDelta, 0, maxHeat);
         RaiseHeatChanged();
+        
+        Debug.Log($"🔥 Enemy attack! Heat: {heat}/{maxHeat}");
+        
         CheckLoseHeat();
     }
 
@@ -344,13 +349,12 @@ public class GameManager : MonoBehaviour
         // Check lose by heat immediately
         if (CheckLoseHeat()) return;
 
-        // Auto end turn when no actions left (no manual end turn)
+        // Auto end turn when no actions left
         if (actionsLeft <= 0 && state == TurnState.PlayerTurn)
             EndPlayerTurn();
     }
 
-    // ---------------- ATTACK RULES ----------------
-    // (You can keep this for now. If you want "no attack" later, we can remove it safely.)
+    // ---------------- ATTACK RULES (PLAYER) ----------------
     public bool CanAttackEnemyOnTile(Tile targetTile)
     {
         if (state != TurnState.PlayerTurn) return false;
@@ -467,33 +471,6 @@ public class GameManager : MonoBehaviour
             Lose("Game Over: Heat limit reached!");
             return true;
         }
-        return false;
-    }
-
-    private bool CheckLoseTaggedEndOfTurn()
-    {
-        if (player == null || player.currentTile == null)
-        {
-            Debug.LogWarning("CheckLoseTaggedEndOfTurn: Player or Player.currentTile is null.");
-            return false;
-        }
-
-        Vector2Int playerPos = player.currentTile.gridPos;
-
-        for (int i = 0; i < enemies.Count; i++)
-        {
-            EnemyUnit e = enemies[i];
-            if (e == null || e.IsDead || e.currentTile == null) continue;
-
-            Vector2Int enemyPos = e.currentTile.gridPos;
-
-            if (BoardManager.Instance != null && BoardManager.Instance.AreAdjacent8D(enemyPos, playerPos))
-            {
-                Lose("Game Over: You were tagged!");
-                return true;
-            }
-        }
-
         return false;
     }
 

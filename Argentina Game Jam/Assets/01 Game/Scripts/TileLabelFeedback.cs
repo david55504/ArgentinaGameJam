@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using System.Collections.Generic;
 
 public class TileLabelFeedback : MonoBehaviour
 {
@@ -15,9 +16,10 @@ public class TileLabelFeedback : MonoBehaviour
     public PlayerController player;
     public UITileLabel tileLabel;
 
-    [Header("Highlight")]
+    [Header("Highlight Colors")]
     public Color validColor = Color.green;
     public Color invalidColor = Color.red;
+    public Color moveRangeColor = new Color(0.3f, 0.6f, 1f, 0.4f); // Azul con transparencia
     [Range(0f, 1f)] public float blend = 0.65f;
 
     [Header("Tooltip Anchor")]
@@ -27,6 +29,11 @@ public class TileLabelFeedback : MonoBehaviour
     private Renderer _hoveredRenderer;
     private MaterialPropertyBlock _mpb;
     private Color _originalColor;
+
+    // Sistema de rango
+    private List<Tile> _rangeHighlightedTiles = new List<Tile>();
+    private Dictionary<Tile, Renderer> _rangeRenderers = new Dictionary<Tile, Renderer>();
+    private Dictionary<Tile, Color> _rangeOriginalColors = new Dictionary<Tile, Color>();
 
     private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor"); // URP Lit
     private static readonly int ColorId = Shader.PropertyToID("_Color");         // Standard
@@ -46,6 +53,7 @@ public class TileLabelFeedback : MonoBehaviour
         if (cam == null || player == null || GameManager.Instance == null)
         {
             ClearHover();
+            ClearRangeHighlights();
             return;
         }
 
@@ -53,9 +61,14 @@ public class TileLabelFeedback : MonoBehaviour
         if (GameManager.Instance.state != TurnState.PlayerTurn)
         {
             ClearHover();
+            ClearRangeHighlights();
             return;
         }
 
+        // ✨ NUEVA LÓGICA: Actualizar rango de movimiento
+        UpdateMovementRange();
+
+        // Raycast para hover
         Vector2 screenPos = pointAction.action.ReadValue<Vector2>();
         Ray ray = cam.ScreenPointToRay(screenPos);
 
@@ -79,6 +92,7 @@ public class TileLabelFeedback : MonoBehaviour
 
         var (isValid, msg) = BuildHoverMessage(tile);
 
+        // ✨ PRIORIDAD: El hover siempre tapa el color de rango
         ApplyHighlight(isValid ? validColor : invalidColor);
 
         if (tileLabel != null)
@@ -87,6 +101,100 @@ public class TileLabelFeedback : MonoBehaviour
             Vector3 anchor = tile.transform.position + worldOffset;
             tileLabel.ShowAtWorld(anchor, msg);
         }
+    }
+
+    private void UpdateMovementRange()
+    {
+        // Limpiar resaltados anteriores
+        ClearRangeHighlights();
+
+        if (player == null || player.currentTile == null) return;
+        if (BoardManager.Instance == null) return;
+        if (GameManager.Instance == null) return;
+
+        Vector2Int playerPos = player.currentTile.gridPos;
+
+        // Direcciones en cruz (4D)
+        Vector2Int[] directions = new Vector2Int[]
+        {
+            new Vector2Int(0, 1),   // Arriba
+            new Vector2Int(0, -1),  // Abajo
+            new Vector2Int(1, 0),   // Derecha
+            new Vector2Int(-1, 0)   // Izquierda
+        };
+
+        foreach (var dir in directions)
+        {
+            Vector2Int adjacentPos = playerPos + dir;
+            Tile adjacentTile = BoardManager.Instance.GetTile(adjacentPos);
+
+            if (adjacentTile == null) continue;
+
+            // Solo resaltar casillas adyacentes válidas
+            if (!BoardManager.Instance.AreAdjacent4D(playerPos, adjacentPos)) continue;
+
+            // ✨ CRÍTICO: Solo resaltar si el jugador PUEDE entrar a esa casilla
+            if (!GameManager.Instance.CanEnterTile(adjacentTile)) continue;
+
+            // Guardar para aplicar color de rango
+            Renderer tileRenderer = adjacentTile.GetComponentInChildren<Renderer>();
+            if (tileRenderer == null) continue;
+
+            _rangeHighlightedTiles.Add(adjacentTile);
+            _rangeRenderers[adjacentTile] = tileRenderer;
+
+            // Guardar color original
+            var mat = tileRenderer.sharedMaterial;
+            if (mat != null)
+            {
+                if (mat.HasProperty(BaseColorId))
+                    _rangeOriginalColors[adjacentTile] = mat.GetColor(BaseColorId);
+                else if (mat.HasProperty(ColorId))
+                    _rangeOriginalColors[adjacentTile] = mat.GetColor(ColorId);
+                else
+                    _rangeOriginalColors[adjacentTile] = Color.white;
+            }
+            else
+            {
+                _rangeOriginalColors[adjacentTile] = Color.white;
+            }
+
+            // Aplicar color de rango SOLO si no es la casilla hovereada
+            if (adjacentTile != _hoveredTile)
+            {
+                ApplyRangeHighlight(adjacentTile, tileRenderer, _rangeOriginalColors[adjacentTile]);
+            }
+        }
+    }
+
+    private void ApplyRangeHighlight(Tile tile, Renderer renderer, Color originalColor)
+    {
+        if (renderer == null) return;
+
+        Color final = Color.Lerp(originalColor, moveRangeColor, blend);
+
+        renderer.GetPropertyBlock(_mpb);
+        _mpb.SetColor(BaseColorId, final);
+        _mpb.SetColor(ColorId, final);
+        renderer.SetPropertyBlock(_mpb);
+    }
+
+    private void ClearRangeHighlights()
+    {
+        foreach (var tile in _rangeHighlightedTiles)
+        {
+            if (_rangeRenderers.TryGetValue(tile, out var renderer) && renderer != null)
+            {
+                // No limpiar si es la casilla hovereada (tiene prioridad)
+                if (tile == _hoveredTile) continue;
+
+                renderer.SetPropertyBlock(null);
+            }
+        }
+
+        _rangeHighlightedTiles.Clear();
+        _rangeRenderers.Clear();
+        _rangeOriginalColors.Clear();
     }
 
     private void SetHovered(Tile tile)
@@ -129,10 +237,9 @@ public class TileLabelFeedback : MonoBehaviour
         int delta = tile.heatDeltaOnEnter;
         string signed = delta >= 0 ? $"+{delta}" : delta.ToString();
 
-        bool canMove = gm.CanMoveToTile(tile); // IMPORTANTE: usa tu check completo (adyacencia/acciones/turno + CanEnterTile)
+        bool canMove = gm.CanMoveToTile(tile);
         return (canMove, $"Move: {signed} Heat");
     }
-
 
     private void ApplyHighlight(Color targetColor)
     {
@@ -149,7 +256,21 @@ public class TileLabelFeedback : MonoBehaviour
     private void ClearHover()
     {
         if (_hoveredRenderer != null)
-            _hoveredRenderer.SetPropertyBlock(null);
+        {
+            // Si la casilla hovereada estaba en el rango, restaurar color de rango
+            if (_hoveredTile != null && _rangeHighlightedTiles.Contains(_hoveredTile))
+            {
+                if (_rangeOriginalColors.TryGetValue(_hoveredTile, out var originalColor))
+                {
+                    ApplyRangeHighlight(_hoveredTile, _hoveredRenderer, originalColor);
+                }
+            }
+            else
+            {
+                // Si no estaba en rango, limpiar completamente
+                _hoveredRenderer.SetPropertyBlock(null);
+            }
+        }
 
         _hoveredTile = null;
         _hoveredRenderer = null;
@@ -158,4 +279,3 @@ public class TileLabelFeedback : MonoBehaviour
             tileLabel.Hide();
     }
 }
-
